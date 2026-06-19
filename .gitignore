@@ -1,0 +1,20 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# build / packaging
+build/
+dist/
+*.egg-info/
+
+# environments
+.venv/
+env/
+.env/
+
+# notebooks
+.ipynb_checkpoints/
+
+# OS files
+.DS_Store
