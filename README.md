@@ -1,4 +1,4 @@
-# meg_toolbox
+# meg-toolbox
 
 Robust and simple tools for MEG analysis, built around MNE-Python. 
 Enables fieldtrip-style volume/grid-based beamformer workflows and aesthetic brain plots.
