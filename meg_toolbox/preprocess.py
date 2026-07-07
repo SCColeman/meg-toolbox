@@ -9,6 +9,7 @@ Author: Sebastian Coleman
 import numpy as np
 import mne
 from datetime import datetime
+from scipy.ndimage import label
 
 def is_outlier(data, threshold=3.5, only_positive=True):
     """
@@ -215,6 +216,37 @@ def annotate_high_amplitude_segments(
     print('Finished!')
 
     return raw
+
+def annotate_high_head_movement_ctf(raw, max_mov_mm=3):
+    
+    raw = raw.copy()
+    
+    # get head position coil data
+    chpi_locs = mne.chpi.extract_chpi_locs_ctf(raw)
+    head_pos = mne.chpi.compute_head_pos(raw.info, chpi_locs, verbose=False)
+    head_xyz = head_pos[:,1:4]*100 - head_pos[0,1:4]*100  
+    times = head_pos[:,0]
+    
+    # identify times with high movement
+    threshold = max_mov_mm 
+    bad_mask = np.any(np.abs(head_xyz) > threshold, 1) 
+    bad_labels, _ = label(bad_mask)
+    bad_times = []
+    for cluster in np.unique(bad_labels[bad_labels>0]):
+        cluster_times = times[bad_labels==cluster]
+        time0, time1 = cluster_times[0]-1, cluster_times[-1]+1
+        bad_times.append([time0, time1])
+        
+    # annotate
+    annot = raw.annotations
+    for bad_time in bad_times:
+        onset = bad_time[0]
+        duration = bad_time[1] - bad_time[0]
+        description = 'BAD_movement'
+        annot += mne.Annotations(onset, duration, description, orig_time=annot.orig_time)
+    raw.set_annotations(annot, verbose=False)
+    
+    return raw, head_xyz
 
 
 def fit_ica_manual(raw, n_components=20, random_state=42, method="fastica"):

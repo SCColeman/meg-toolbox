@@ -7,7 +7,7 @@ Inverse modelling for MEG data.
 """
 
 import os.path as op
-from nilearn import image, datasets
+from nilearn import image, datasets, plotting
 import mne
 from sklearn.decomposition import PCA
 import numpy as np
@@ -20,6 +20,11 @@ from mne_connectivity import symmetric_orth
 
 def calculate_beamformer_weights(raw, fwd, reg=0.05):
     
+    """
+    Calculate beamformer weights from data and forward model.
+    Arguments suitable for most cases.
+    """
+    
     cov = mne.compute_raw_covariance(raw, reject_by_annotation=True)
     filters = mne.beamformer.make_lcmv(
             raw.info,
@@ -28,12 +33,13 @@ def calculate_beamformer_weights(raw, fwd, reg=0.05):
             reg=reg,
             noise_cov=None,
             pick_ori='max-power',
-            weight_norm='unit-noise-gain-invariant',
+            weight_norm='nai',
             rank=None,
             reduce_rank=True,
             verbose=False,
             )
     return filters
+
 
 def parcel_beamformer(raw, 
                       filters, 
@@ -42,6 +48,7 @@ def parcel_beamformer(raw,
                       subjects_dir, 
                       parcellation_fname, 
                       parcel_names, 
+                      method='centroid',
                       reg_affine=None, 
                       orthogonalise=True,
                       ):
@@ -82,16 +89,34 @@ def parcel_beamformer(raw,
     weights = filters['weights']
     parcel_data = np.zeros((len(parcel_names), data.shape[1]))
     for parcel in tqdm(range(len(parcel_names)), desc='parcellating...'):
-
-        # beamform to all voxels in parcel
-        parcel_ind = src_atlas==indices[parcel]
-        parcel_weights = weights[parcel_ind,:]
-        parcel_stc = parcel_weights @ data
         
-        # take first pc 
-        pca = PCA(1).fit(parcel_stc.T)
-        parcel_stc = pca.transform(parcel_stc.T).T
-        parcel_data[parcel,:] = parcel_stc.copy()
+        if method=='pca':
+
+            # beamform to all voxels in parcel
+            parcel_ind = src_atlas==indices[parcel]
+            parcel_weights = weights[parcel_ind,:]
+            parcel_stc = parcel_weights @ data
+            
+            # take first pc 
+            pca = PCA(1).fit(parcel_stc.T)
+            parcel_stc = pca.transform(parcel_stc.T).T
+            parcel_data[parcel,:] = parcel_stc.copy()
+            
+        elif method=='centroid':
+            
+            # find centroid of parcel
+            parcel_ind = src_atlas==indices[parcel]
+            parcel_coords = src_coords[parcel_ind]
+            centroid_coord = np.mean(parcel_coords, 0)
+            
+            # find closest source index
+            src_dists = np.linalg.norm(src_coords - centroid_coord, axis=-1)
+            src_centroid = np.argmin(src_dists)
+            
+            # beamform to centroid
+            centroid_weights = weights[src_centroid,:]
+            centroid_stc = centroid_weights @ data
+            parcel_data[parcel,:] = centroid_stc
         
     if orthogonalise:
         parcel_data = symmetric_orth(parcel_data)
@@ -104,6 +129,7 @@ def parcel_beamformer(raw,
     atlas_raw.apply_function(zscore, picks='all')
     
     return atlas_raw, atlas_mri
+
 
 def extract_parcel_peak_VEs(raw, 
                       filters, 
@@ -151,7 +177,7 @@ def extract_parcel_peak_VEs(raw,
     for vox in scanner_vox:
         src_ind = atlas_data[vox[0], vox[1], vox[2]]
         src_atlas.append(src_ind)
-        src_val = stat_data[vox[0], vox[1], vox[2]]
+        src_val = np.abs(stat_data[vox[0], vox[1], vox[2]])
         src_stat.append(src_val)
     src_atlas = np.array(src_atlas)
     src_stat = np.array(src_stat)
@@ -177,6 +203,13 @@ def extract_parcel_peak_VEs(raw,
     atlas_raw.apply_function(zscore, picks='all')
     
     return atlas_raw, atlas_mri
+
+def orthogonalise_source_raw(source_raw):
+    
+    source_raw_orth = mne.io.RawArray(zscore(symmetric_orth(source_raw.get_data()), -1), source_raw.info)
+    source_raw_orth.set_annotations(source_raw.annotations)
+    
+    return source_raw_orth
 
 def reg_to_mni(fs_subject, subjects_dir, res=5):
     
@@ -209,18 +242,7 @@ def kurtosis_beamformer(raw,
     
     # beamform
     cov = mne.compute_raw_covariance(raw_filt, reject_by_annotation=True)
-    filters = mne.beamformer.make_lcmv(
-            raw_filt.info,
-            fwd,
-            cov,
-            reg=0.02,
-            noise_cov=None,
-            pick_ori='max-power',
-            weight_norm='unit-noise-gain-invariant',
-            rank=None,
-            reduce_rank=False,
-            verbose=False,
-            )
+    filters = calculate_beamformer_weights(raw_filt, fwd, reg=0.02)
     
     stc = mne.beamformer.apply_lcmv_raw(raw_filt, filters, start=0, stop=1)
     data = raw_filt.get_data(reject_by_annotation='omit')
