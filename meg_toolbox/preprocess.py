@@ -109,13 +109,16 @@ def remove_noisy_channels_with_hfc(
     raw = raw.copy()
     
     # apply HFC to temporary raw to find bad channels
-    raw_temp = raw.copy()
-    projs = mne.preprocessing.compute_proj_hfc(raw_temp.info, order=order)
-    raw_temp.add_proj(projs).apply_proj(verbose="error")
-    noise = raw_temp.copy().filter(*f_band, verbose=False).get_data(reject_by_annotation='omit')
-    variances = np.var(noise, 1)
-    outliers = is_outlier(variances, z_threshold)
-    bad_chans = [raw_temp.ch_names[i] for i in range(len(raw_temp.ch_names)) if outliers[i]]
+    bad_chans = []
+    for i in range(3):
+        raw_temp = raw.copy()
+        raw_temp.drop_channels(bad_chans)
+        projs = mne.preprocessing.compute_proj_hfc(raw_temp.info, order=order)
+        raw_temp.add_proj(projs).apply_proj(verbose="error")
+        noise = raw_temp.copy().filter(*f_band, verbose=False).get_data(reject_by_annotation='omit')
+        variances = np.var(noise, 1)
+        outliers = is_outlier(variances, z_threshold)
+        bad_chans += [raw_temp.ch_names[i] for i in range(len(raw_temp.ch_names)) if outliers[i]]
     
     # remove bad channels and apply HFC
     raw.drop_channels(bad_chans)
@@ -131,6 +134,12 @@ def remove_noisy_channels_with_ssp(
         f_band=(1,100),
         z_threshold=5.0,
         ):
+    
+    """
+    Apply SSP and remove noisy channels in one step - useful for OPM data.
+    These steps are combined as it is important that bad channels are
+    removed prior to SSP, but SSP is often required to "see" the bad channels.
+    """
     
     raw = raw.copy()
     
