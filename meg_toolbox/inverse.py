@@ -126,7 +126,8 @@ def parcel_beamformer(raw,
     atlas_raw = mne.io.RawArray(parcel_data, info)
     atlas_raw.set_meas_date(raw.info['meas_date'])
     atlas_raw.set_annotations(raw.annotations)
-    atlas_raw.apply_function(zscore, picks='all')
+    if orthogonalise:
+        atlas_raw.apply_function(zscore, picks='all')
     
     return atlas_raw, atlas_mri
 
@@ -149,7 +150,7 @@ def extract_parcel_peak_VEs(raw,
     moving = image.load_img(op.join(subjects_dir, fs_subject, 'mri', 'brainmask.mgz'))
     static = datasets.load_mni152_template()
     if reg_affine is None:
-        reg_affine, sdr_morph = compute_volume_registration(moving, static, pipelines='affines', zooms=5)
+        reg_affine, _ = compute_volume_registration(moving, static, pipeline='affines', zooms=5)
 
     # apply inverse transform to atlas
     atlas_img = image.load_img(parcellation_fname)

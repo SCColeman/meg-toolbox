@@ -95,6 +95,7 @@ def remove_noisy_channels(
 
 def remove_noisy_channels_with_hfc(
         raw,
+        order=2,
         f_band=(1, 100),
         z_threshold=5.0,
         ):
@@ -109,7 +110,7 @@ def remove_noisy_channels_with_hfc(
     
     # apply HFC to temporary raw to find bad channels
     raw_temp = raw.copy()
-    projs = mne.preprocessing.compute_proj_hfc(raw_temp.info, order=1)
+    projs = mne.preprocessing.compute_proj_hfc(raw_temp.info, order=order)
     raw_temp.add_proj(projs).apply_proj(verbose="error")
     noise = raw_temp.copy().filter(*f_band, verbose=False).get_data(reject_by_annotation='omit')
     variances = np.var(noise, 1)
@@ -122,7 +123,33 @@ def remove_noisy_channels_with_hfc(
     raw.add_proj(projs).apply_proj(verbose="error")
     print('Finished!')
     
-    return raw  
+    return raw
+
+def remove_noisy_channels_with_ssp(
+        raw,
+        n_comps=1,
+        f_band=(1,100),
+        z_threshold=5.0,
+        ):
+    
+    raw = raw.copy()
+    
+    # apply ssp to temporary raw to find bad channels
+    raw_temp = raw.copy()
+    projs = mne.compute_proj_raw(raw_temp, n_mag=n_comps)
+    raw_temp.add_proj(projs).apply_proj()
+    noise = raw_temp.copy().filter(*f_band, verbose=False).get_data(reject_by_annotation='omit')
+    variances = np.var(noise, 1)
+    outliers = is_outlier(variances, z_threshold)
+    bad_chans = [raw_temp.ch_names[i] for i in range(len(raw_temp.ch_names)) if outliers[i]]
+    
+    # remove bad channels and apply SSP
+    raw.drop_channels(bad_chans)
+    projs = mne.compute_proj_raw(raw, n_mag=n_comps)
+    raw.add_proj(projs).apply_proj()
+    print('Finished!')
+    
+    return raw
     
 def annotate_bad_segments(
     raw,
@@ -146,7 +173,7 @@ def annotate_bad_segments(
 
     variances = [
         np.mean(np.var(noise[:, i:i + seg_len], axis=1))
-        for i in range(0, noise.shape[1] - seg_len + 1, step_len)
+        for i in range(0, noise.shape[1], step_len)
     ]
     variances = np.asarray(variances)
     outliers = is_outlier(variances, z_threshold)
@@ -154,7 +181,7 @@ def annotate_bad_segments(
     annotations = raw.annotations
     times = raw.times
 
-    for idx, start in enumerate(range(0, noise.shape[1] - seg_len, step_len)):
+    for idx, start in enumerate(range(0, noise.shape[1], step_len)):
         if outliers[idx]:
             onset = times[start]
             duration = segment_length
@@ -165,7 +192,7 @@ def annotate_bad_segments(
                 orig_time=annotations.orig_time,
             )
 
-    raw.set_annotations(annotations, verbose=False)
+    raw.set_annotations(annotations)
 
     print('Finished!')
 
@@ -192,7 +219,7 @@ def annotate_high_amplitude_segments(
 
     amplitudes = [
         np.max(np.abs(noise[:, i:i + seg_len]))
-        for i in range(0, noise.shape[1] - seg_len + 1, step_len)
+        for i in range(0, noise.shape[1], step_len)
     ]
     amplitudes = np.asarray(amplitudes)
     outliers = amplitudes > threshold
@@ -200,7 +227,7 @@ def annotate_high_amplitude_segments(
     annotations = raw.annotations
     times = raw.times
 
-    for idx, start in enumerate(range(0, noise.shape[1] - seg_len, step_len)):
+    for idx, start in enumerate(range(0, noise.shape[1], step_len)):
         if outliers[idx]:
             onset = times[start]
             duration = segment_length
