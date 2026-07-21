@@ -18,6 +18,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import os.path as op
 import mne
+from nibabel.affines import apply_affine
 
 def make_atlas_nifti(atlas, values):
     
@@ -294,6 +295,19 @@ def glass_brain_plot(adjacency, atlas_coords, threshold, cbar_label):
     cbar.set_label(cbar_label, fontsize=16, labelpad=0)
     
     return fig
+
+
+def volume_brain_plot(img, bg_img, symmetric=False, cmap='hot', threshold=0, fade=True):
+    
+    peak = np.unravel_index(np.argmax(np.abs(img.get_fdata())), img.shape)
+    cut_vox = [peak[0], peak[1], peak[2]]
+    cut_coords = nib.affines.apply_affine(img.affine, cut_vox)
+    fig = plotting.plot_stat_map(img, bg_img, transparency=img,
+                                 cut_coords=cut_coords, symmetric_cbar=symmetric, cmap=cmap,
+                                 threshold=threshold, black_bg=False, draw_cross=False, annotate=False)
+    
+    return fig
+
 
 def regression_plot(x, y, ax, color='purple', label=None):
     

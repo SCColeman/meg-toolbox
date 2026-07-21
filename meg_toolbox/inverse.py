@@ -258,35 +258,49 @@ def kurtosis_beamformer(raw,
     return kurtosis_stc, kurtosis_img, filters
 
 
-def contrast_beamformer(raw,
-                        filters,
+def contrast_beamformer(raw, 
                         src,
-                        fmin, 
-                        fmax,
-                        event_name_act,
-                        event_name_base,
-                        act_tmin,
-                        act_tmax,
-                        base_tmin,
-                        base_tmax,
+                        fwd,
+                        f_lims,
+                        active_event_id, 
+                        baseline_event_id, 
+                        epoch_window=(-0.5, 0.5),
+                        active_window=(0, 0.5),
+                        baseline_window=(-0.5, 0),
                         ):
     
-    raw_filt = raw.copy().filter(fmin, fmax)
-    events, ids = mne.events_from_annotations(raw_filt)
+    """
+    Beamformer imaging based on an event-related contrast.
+    """
     
-    # make active covariance
-    epochs_act = mne.Epochs(raw_filt, events, ids[event_name_act],
-                            tmin=act_tmin, tmax=act_tmax, baseline=None,
-                            preload=True)
-    cov_act = mne.compute_covariance(epochs_act)
+    # filter data
+    raw_filt = raw.copy().filter(f_lims[0], f_lims[1])
     
-    # make baseline covariance
-    epochs_base = mne.Epochs(raw_filt, events, ids[event_name_base],
-                            tmin=base_tmin, tmax=base_tmax, baseline=None,
-                            preload=True)
-    cov_base = mne.compute_covariance(epochs_base)
+    # epoch
+    events, ids = mne.events_from_annotations(raw)
+    epoch_ids = [ev for ev in active_event_id] + [ev for ev in baseline_event_id]
+    epoch_ids = list(np.unique(epoch_ids))
+    epochs = mne.Epochs(raw_filt, events, [ids[ev] for ev in epoch_ids], 
+                        tmin=epoch_window[0], tmax=epoch_window[1], 
+                        preload=True, reject_by_annotation=True)
     
-    # create source level contrast
+    # calculate common beamformer
+    cov = mne.compute_covariance(epochs)
+    filters = mne.beamformer.make_lcmv(epochs.info,
+                                       fwd,
+                                       cov,
+                                       reg=0.05,
+                                       pick_ori='max-power',
+                                       weight_norm='nai',
+                                       reduce_rank=True,
+                                       rank=None,
+                                       )
+    
+    # make pseudo-T
+    cov_act = mne.compute_covariance(epochs[[str(ids[ev]) for ev in active_event_id]], 
+                                     tmin=active_window[0], tmax=active_window[1])
+    cov_base = mne.compute_covariance(epochs[[str(ids[ev]) for ev in baseline_event_id]], 
+                                     tmin=baseline_window[0], tmax=baseline_window[1])
     stc_act = mne.beamformer.apply_lcmv_cov(cov_act, filters)
     stc_base = mne.beamformer.apply_lcmv_cov(cov_base, filters)
     stc = (stc_act - stc_base) / (stc_act + stc_base)
