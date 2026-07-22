@@ -277,6 +277,10 @@ def contrast_beamformer(raw,
     raw_filt = raw.copy().filter(f_lims[0], f_lims[1])
     
     # epoch
+    if type(active_event_id)==str:
+        active_event_id = [active_event_id]
+    if type(baseline_event_id)==str:
+        baseline_event_id = [baseline_event_id]
     events, ids = mne.events_from_annotations(raw)
     epoch_ids = [ev for ev in active_event_id] + [ev for ev in baseline_event_id]
     epoch_ids = list(np.unique(epoch_ids))

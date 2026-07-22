@@ -28,6 +28,7 @@ def mark_mri_fiducials(fs_subject, subjects_dir):
     mne.gui.coregistration(
         subject=fs_subject,
         subjects_dir=subjects_dir,
+        block=True,
     )
 
 
