@@ -209,6 +209,7 @@ def annotate_bad_segments(
 
 def annotate_high_amplitude_segments(
     raw,
+    f_band=(20, 100),
     segment_length=0.5,
     step=0.25,
     threshold=1e-12,

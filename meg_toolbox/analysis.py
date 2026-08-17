@@ -11,6 +11,8 @@ import numpy as np
 
 def calculate_evoked(
     raw,
+    events, 
+    ids,
     event_name,
     tmin=-0.5,
     tmax=1.0,
@@ -24,14 +26,10 @@ def calculate_evoked(
     if picks is None:
         picks = 'all'
 
-    events, event_ids = mne.events_from_annotations(raw)
-    if event_name not in event_ids:
-        raise ValueError(f"Event '{event_name}' not found in annotations.")
-
     epochs = mne.Epochs(
         raw,
         events,
-        event_id=event_ids[event_name],
+        event_id=ids[event_name],
         tmin=tmin,
         tmax=tmax,
         baseline=baseline,
@@ -44,6 +42,8 @@ def calculate_evoked(
 
 def calculate_tfr(
     raw,
+    events, 
+    ids,
     event_name,
     tmin=-0.5,
     tmax=1.0,
@@ -62,14 +62,10 @@ def calculate_tfr(
     if n_cycles is None:
         n_cycles = freqs / 2
 
-    events, event_ids = mne.events_from_annotations(raw)
-    if event_name not in event_ids:
-        raise ValueError(f"Event '{event_name}' not found in annotations.")
-
     epochs = mne.Epochs(
         raw,
         events,
-        event_id=event_ids[event_name],
+        event_id=ids[event_name],
         tmin=tmin - padding,
         tmax=tmax + padding,
         baseline=None,

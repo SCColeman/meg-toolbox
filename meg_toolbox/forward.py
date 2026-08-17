@@ -104,7 +104,7 @@ def make_conduction_model(fs_subject, subjects_dir):
     
     return bem
 
-def make_volume_source_space(fs_subject, subjects_dir, grid_spacing=5):
+def make_volume_source_space(fs_subject, subjects_dir, grid_spacing=5, n_jobs=1):
     """
     Make a volumetric (grid) source space.
 
@@ -115,7 +115,9 @@ def make_volume_source_space(fs_subject, subjects_dir, grid_spacing=5):
         pos=grid_spacing,
         surface=surface,
         subjects_dir=subjects_dir,
+        mindist=2,
         verbose=False,
+        n_jobs=n_jobs,
         )
     
     return src

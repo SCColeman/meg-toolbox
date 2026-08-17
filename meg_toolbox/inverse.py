@@ -16,6 +16,7 @@ from tqdm import tqdm
 from scipy.stats import zscore, kurtosis
 from mne.transforms import compute_volume_registration, apply_volume_registration
 from mne_connectivity import symmetric_orth
+import pickle
 
 
 def calculate_beamformer_weights(raw, fwd, reg=0.05):
@@ -43,38 +44,47 @@ def calculate_beamformer_weights(raw, fwd, reg=0.05):
 
 def parcel_beamformer(raw, 
                       filters, 
-                      src, 
+                      fwd, 
                       fs_subject, 
                       subjects_dir, 
                       parcellation_fname, 
                       parcel_names, 
                       method='centroid',
-                      reg_affine=None, 
                       orthogonalise=True,
                       ):
     """
     Use calculated beamformer weights to construct parcel-level raw object.
 
     """
-    # coreg mri to standard for parcellation
-    moving = image.load_img(op.join(subjects_dir, fs_subject, 'mri', 'brainmask.mgz'))
-    static = datasets.load_mni152_template()
-    if reg_affine is None:
-        reg_affine, _ = compute_volume_registration(moving, static, pipeline='affines', zooms=5)
-
-    # apply inverse transform to atlas
+    
+    # load subject mri and template
+    mri = image.load_img(op.join(subjects_dir, fs_subject, 'mri', 'brainmask.mgz'))
+    template = datasets.load_mni152_template()
+    
+    # load transform from MNI space to subject MRI space
+    transforms_path = op.join(subjects_dir, fs_subject, 'subject_mni_transforms')
+    if not op.exists(transforms_path):
+        raise Exception("MNI->MRI transforms do not exist. Run transform.compute_subject_mni_transforms.")
+    reg_affine = np.load(op.join(transforms_path, 'mni2mri_aff.npy'))
+    with open(op.join(transforms_path, 'mni2mri_sdr.pkl'), 'rb') as file:
+        sdr_morph = pickle.load(file)
+        
+    # convert atlas to subject MRI space
     atlas_img = image.load_img(parcellation_fname)
-    atlas_mri = apply_volume_registration(atlas_img, moving, np.linalg.inv(reg_affine), interpolation='nearest')
+    atlas_mri = apply_volume_registration(atlas_img, mri, reg_affine, sdr_morph, interpolation='nearest')
     indices = np.unique(atlas_mri.get_fdata())[1:]
 
-    # get src coords in mm
-    src_coords = src[0]['rr'][src[0]['inuse']==1] * 1000
-
+    # get src coords IN MRI (surface RAS) SPACE 
+    src_coords = fwd['src'][0]['rr'][fwd['src'][0]['inuse']==1]
+    head_mri_t = mne.transforms.invert_transform(fwd['mri_head_t'])
+    src_coords = mne.transforms.apply_trans(head_mri_t, src_coords)
+    src_coords *= 1000   # needs to be in mm
+    
     # convert coords from surface RAS to scanner RAS
-    torig = moving.header.get_vox2ras_tkr()
-    surf2scanner = moving.affine @ np.linalg.inv(torig)
+    torig = mri.header.get_vox2ras_tkr()
+    surf2scanner = mri.affine @ np.linalg.inv(torig)
     coords_scanner = apply_affine(surf2scanner, src_coords)
-    scanner_vox = np.round(apply_affine(np.linalg.inv(moving.affine), coords_scanner)).astype(int)
+    scanner_vox = np.round(apply_affine(np.linalg.inv(mri.affine), coords_scanner)).astype(int)
 
     # for each source, get a corresponding parcel label
     atlas_data = atlas_mri.get_fdata()
@@ -134,51 +144,72 @@ def parcel_beamformer(raw,
 
 def extract_parcel_peak_VEs(raw, 
                       filters, 
-                      src, 
+                      fwd, 
                       fs_subject, 
                       subjects_dir, 
                       parcellation_fname, 
                       parcel_names, 
                       stat_img,
-                      reg_affine=None, 
+                      mode='abs',
                       ):
     """
     Use calculated beamformer weights to construct parcel-level raw object.
 
     """
-    # coreg mri to standard for parcellation
-    moving = image.load_img(op.join(subjects_dir, fs_subject, 'mri', 'brainmask.mgz'))
-    static = datasets.load_mni152_template()
-    if reg_affine is None:
-        reg_affine, _ = compute_volume_registration(moving, static, pipeline='affines', zooms=5)
-
-    # apply inverse transform to atlas
+    
+    # load subject mri and template
+    mri = image.load_img(op.join(subjects_dir, fs_subject, 'mri', 'brainmask.mgz'))
+    template = datasets.load_mni152_template()
+    
+    # load transform from MNI space to subject MRI space
+    transforms_path = op.join(subjects_dir, fs_subject, 'subject_mni_transforms')
+    if not op.exists(transforms_path):
+        raise Exception("MNI->MRI transforms do not exist. Run transform.compute_subject_mni_transforms.")
+    reg_affine = np.load(op.join(transforms_path, 'mni2mri_aff.npy'))
+    with open(op.join(transforms_path, 'mni2mri_sdr.pkl'), 'rb') as file:
+        sdr_morph = pickle.load(file)
+        
+    # convert atlas to subject MRI space
     atlas_img = image.load_img(parcellation_fname)
-    atlas_mri = apply_volume_registration(atlas_img, moving, np.linalg.inv(reg_affine), interpolation='nearest')
+    atlas_mri = apply_volume_registration(atlas_img, mri, reg_affine, sdr_morph, interpolation='nearest')
     indices = np.unique(atlas_mri.get_fdata())[1:]
 
-    # get src coords in mm
-    src_coords = src[0]['rr'][src[0]['inuse']==1] * 1000
+    # get src coords IN MRI (surface RAS) SPACE 
+    src_coords = fwd['src'][0]['rr'][fwd['src'][0]['inuse']==1]
+    head_mri_t = mne.transforms.invert_transform(fwd['mri_head_t'])
+    src_coords = mne.transforms.apply_trans(head_mri_t, src_coords)
+    src_coords *= 1000   # needs to be in mm
 
     # convert coords from surface RAS to scanner RAS
-    torig = moving.header.get_vox2ras_tkr()
-    surf2scanner = moving.affine @ np.linalg.inv(torig)
+    torig = mri.header.get_vox2ras_tkr()
+    surf2scanner = mri.affine @ np.linalg.inv(torig)
     coords_scanner = apply_affine(surf2scanner, src_coords)
-    scanner_vox = np.round(apply_affine(np.linalg.inv(moving.affine), coords_scanner)).astype(int)
+    scanner_vox = np.round(apply_affine(np.linalg.inv(mri.affine), coords_scanner)).astype(int)
 
-    # for each source, get a corresponding parcel label and stat value
+    # resample statistical map to mri (/ source space)
     atlas_data = atlas_mri.get_fdata()
-    stat_resampled = image.resample_to_img(stat_img, moving)
+    stat_resampled = image.resample_to_img(stat_img, mri)
     if len(stat_resampled.shape)==4:
         stat_data = stat_resampled.get_fdata()[:,:,:,0]
     else:
         stat_data = stat_resampled.get_fdata()
+      
+    # correct sign depending on mode
+    if mode=='abs':
+        stat_data = np.abs(stat_data)
+    elif mode=='neg':
+        stat_data = -stat_data
+    elif mode=='pos':
+        pass
+    else:
+        raise Exception("Mode must be either 'pos', 'neg', or 'abs'.")
+    
     src_atlas = []
     src_stat = []
     for vox in scanner_vox:
         src_ind = atlas_data[vox[0], vox[1], vox[2]]
         src_atlas.append(src_ind)
-        src_val = np.abs(stat_data[vox[0], vox[1], vox[2]])
+        src_val = stat_data[vox[0], vox[1], vox[2]]
         src_stat.append(src_val)
     src_atlas = np.array(src_atlas)
     src_stat = np.array(src_stat)
@@ -212,22 +243,6 @@ def orthogonalise_source_raw(source_raw):
     
     return source_raw_orth
 
-def reg_to_mni(fs_subject, subjects_dir, res=5):
-    
-    # calculate transform
-    moving = image.load_img(op.join(subjects_dir, fs_subject, 'mri', 'brainmask.mgz'))
-    static = datasets.load_mni152_template()
-    reg_affine, _ = compute_volume_registration(moving, static, pipeline='affines', zooms=res)
-    
-    # apply to moving image
-    transformed = apply_volume_registration(moving, static, reg_affine)
-    
-    return transformed, static, reg_affine
-
-def apply_transform(img, static, reg_affine):
-    
-    transformed = apply_volume_registration(img, static, reg_affine, verbose=False)
-    return transformed
 
 def kurtosis_beamformer(raw,
                         fwd,
@@ -259,7 +274,8 @@ def kurtosis_beamformer(raw,
 
 
 def contrast_beamformer(raw, 
-                        src,
+                        events,
+                        ids,
                         fwd,
                         f_lims,
                         active_event_id, 
@@ -281,12 +297,12 @@ def contrast_beamformer(raw,
         active_event_id = [active_event_id]
     if type(baseline_event_id)==str:
         baseline_event_id = [baseline_event_id]
-    events, ids = mne.events_from_annotations(raw)
     epoch_ids = [ev for ev in active_event_id] + [ev for ev in baseline_event_id]
     epoch_ids = list(np.unique(epoch_ids))
     epochs = mne.Epochs(raw_filt, events, [ids[ev] for ev in epoch_ids], 
                         tmin=epoch_window[0], tmax=epoch_window[1], 
-                        preload=True, reject_by_annotation=True)
+                        preload=True, reject_by_annotation=True,
+                        on_missing='ignore')
     
     # calculate common beamformer
     cov = mne.compute_covariance(epochs)
@@ -308,7 +324,7 @@ def contrast_beamformer(raw,
     stc_act = mne.beamformer.apply_lcmv_cov(cov_act, filters)
     stc_base = mne.beamformer.apply_lcmv_cov(cov_base, filters)
     stc = (stc_act - stc_base) / (stc_act + stc_base)
-    stc_img = stc.as_volume(src)
+    stc_img = stc.as_volume(fwd['src'])
     
-    return stc, stc_img
+    return stc, stc_img, filters
     
