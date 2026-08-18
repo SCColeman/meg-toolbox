@@ -93,11 +93,34 @@ def remove_noisy_channels(
     
     return raw
 
+def remove_dead_channels(raw, lower_lim=2e-21):
+    
+    """
+    Remove dead channels based on lower amplitude limit.
+    """
+    
+    print('Detecting dead channels...')
+    raw = raw.copy()
+    noise = raw.get_data()
+    variances = np.var(noise, 1)
+    outliers = variances < lower_lim
+    bad_chans = [raw.ch_names[i] for i in range(len(raw.ch_names)) if outliers[i]]
+    raw.info['bads'] += bad_chans
+    raw.info['bads'] = [str(inst) for inst in raw.info['bads']]
+
+    raw.drop_channels(raw.info['bads'])
+    
+    print('Finished!')
+    print(f'Removed {len(bad_chans)} channels')
+    
+    return raw
+
 def remove_noisy_channels_with_hfc(
         raw,
         order=2,
         f_band=(1, 100),
         z_threshold=5.0,
+        iterations=3,
         ):
     """
     Apply HFC and remove noisy channels in one step - useful for OPM data.
@@ -110,7 +133,7 @@ def remove_noisy_channels_with_hfc(
     
     # apply HFC to temporary raw to find bad channels
     bad_chans = []
-    for i in range(3):
+    for i in range(iterations):
         raw_temp = raw.copy()
         raw_temp.drop_channels(bad_chans)
         projs = mne.preprocessing.compute_proj_hfc(raw_temp.info, order=order)
@@ -119,6 +142,9 @@ def remove_noisy_channels_with_hfc(
         variances = np.var(noise, 1)
         outliers = is_outlier(variances, z_threshold)
         bad_chans += [raw_temp.ch_names[i] for i in range(len(raw_temp.ch_names)) if outliers[i]]
+        print('Iter ' + str(i+1) + ': dropped ' + str(np.sum(outliers)) + ' channels')
+        if np.sum(outliers)==0:
+            break
     
     # remove bad channels and apply HFC
     raw.drop_channels(bad_chans)
@@ -130,9 +156,10 @@ def remove_noisy_channels_with_hfc(
 
 def remove_noisy_channels_with_ssp(
         raw,
-        n_comps=1,
+        n_comps=3,
         f_band=(1,100),
         z_threshold=5.0,
+        iterations=3,
         ):
     
     """
@@ -144,13 +171,19 @@ def remove_noisy_channels_with_ssp(
     raw = raw.copy()
     
     # apply ssp to temporary raw to find bad channels
-    raw_temp = raw.copy()
-    projs = mne.compute_proj_raw(raw_temp, n_mag=n_comps)
-    raw_temp.add_proj(projs).apply_proj()
-    noise = raw_temp.copy().filter(*f_band, verbose=False).get_data(reject_by_annotation='omit')
-    variances = np.var(noise, 1)
-    outliers = is_outlier(variances, z_threshold)
-    bad_chans = [raw_temp.ch_names[i] for i in range(len(raw_temp.ch_names)) if outliers[i]]
+    bad_chans = []
+    for i in range(iterations):
+        raw_temp = raw.copy()
+        raw_temp.drop_channels(bad_chans)
+        projs = mne.compute_proj_raw(raw_temp, n_mag=n_comps)
+        raw_temp.add_proj(projs).apply_proj()
+        noise = raw_temp.copy().filter(*f_band, verbose=False).get_data(reject_by_annotation='omit')
+        variances = np.var(noise, 1)
+        outliers = is_outlier(variances, z_threshold)
+        bad_chans += [raw_temp.ch_names[i] for i in range(len(raw_temp.ch_names)) if outliers[i]]
+        print('Iter ' + str(i+1) + ': dropped ' + str(np.sum(outliers)) + ' channels')
+        if np.sum(outliers)==0:
+            break
     
     # remove bad channels and apply SSP
     raw.drop_channels(bad_chans)

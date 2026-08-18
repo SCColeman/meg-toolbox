@@ -17,26 +17,26 @@ def calculate_evoked(
     tmin=-0.5,
     tmax=1.0,
     baseline=(-0.5, -0.1),
-    picks=None
     ):
     """
     Calculate the evoked response for a given event from raw data.
 
     """
-    if picks is None:
-        picks = 'all'
+    
+    if isinstance(event_name, str):
+        event_name = [event_name]
 
     epochs = mne.Epochs(
         raw,
         events,
-        event_id=ids[event_name],
+        event_id=[ids[name] for name in event_name],
         tmin=tmin,
         tmax=tmax,
         baseline=baseline,
-        picks=picks,
+        picks='all',
         preload=True
     )
-    evoked = epochs.average(picks=picks)
+    evoked = epochs.average(picks='all')
     return evoked
 
 
@@ -51,25 +51,27 @@ def calculate_tfr(
     n_cycles=None,
     baseline=(-0.5, -0.1),
     padding=0.5,
-    picks=None
+    n_jobs=1,
     ):
     """
     Calculate the time-frequency representation (TFR) for a given event.
 
     """
-    if picks is None:
-        picks = 'all'
+
     if n_cycles is None:
         n_cycles = freqs / 2
+
+    if isinstance(event_name, str):
+        event_name = [event_name]
 
     epochs = mne.Epochs(
         raw,
         events,
-        event_id=ids[event_name],
+        event_id=[ids[name] for name in event_name],
         tmin=tmin - padding,
         tmax=tmax + padding,
         baseline=None,
-        picks=picks,
+        picks='all',
         preload=True
     )
 
@@ -78,11 +80,37 @@ def calculate_tfr(
         freqs=freqs,
         n_cycles=n_cycles,
         average=True,
-        picks=picks
+        picks='all',
+        n_jobs=n_jobs,
     )
 
     tfr.crop(tmin, tmax)
     tfr.apply_baseline(baseline, mode='percent')
 
     return tfr
+
+
+def zscore_excluding_bads(raw):
+    
+    raw = raw.copy()
+    
+    # extract data
+    data = raw.get_data(picks='all')
+    clean_data = raw.get_data(picks='all', reject_by_annotation='omit')
+    
+    # calculate clean z-score
+    mean = np.mean(clean_data, axis=-1)
+    std = np.std(clean_data, axis=-1)
+    
+    # apply z-score to full data
+    clean_z = ((data.T - mean) / std).T
+    
+    # make into raw
+    raw_z = mne.io.RawArray(clean_z, raw.info)
+    raw_z.set_meas_date(raw.info['meas_date'])
+    raw_z.set_annotations(raw.annotations)
+    
+    return raw_z
+
+
 
