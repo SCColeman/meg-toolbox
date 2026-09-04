@@ -55,3 +55,21 @@ def apply_transform(img, static, reg_affine, sdr_morph=None):
     
     transformed = apply_volume_registration(img, static, reg_affine, sdr_morph, verbose=False)
     return transformed
+
+def transform_img_to_mni(img, fs_subject, subjects_dir, res=2):
+    
+    # load transforms
+    transforms_path = op.join(subjects_dir, fs_subject, 'subject_mni_transforms')
+    if not op.exists(transforms_path):
+        raise Exception("MRI->MMI transforms do not exist. Run transform.compute_subject_mni_transforms.")
+    reg_affine = np.load(op.join(transforms_path, 'mri2mni_aff.npy'))
+    with open(op.join(transforms_path, 'mri2mni_sdr.pkl'), 'rb') as file:
+        sdr_morph = pickle.load(file)
+    
+    # load template
+    template = datasets.load_mni152_template(res)
+    
+    # apply transform
+    img_mni = apply_transform(img, template, reg_affine, sdr_morph)
+    
+    return img_mni

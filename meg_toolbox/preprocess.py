@@ -77,9 +77,8 @@ def remove_noisy_channels(
     
     print('Detecting bad channels...')
     raw = raw.copy()
-    noise = raw.copy().filter(*f_band, verbose=False).get_data(reject_by_annotation='omit')
-    
-    variances = np.var(noise, 1)
+    noise = raw.compute_psd(fmin=f_band[0], fmax=f_band[1], verbose=False).get_data()
+    variances = np.mean(noise, 1)
     outliers = is_outlier(variances, z_threshold)
     bad_chans = [raw.ch_names[i] for i in range(len(raw.ch_names)) if outliers[i]]
     raw.info['bads'] += bad_chans
@@ -138,8 +137,8 @@ def remove_noisy_channels_with_hfc(
         raw_temp.drop_channels(bad_chans)
         projs = mne.preprocessing.compute_proj_hfc(raw_temp.info, order=order)
         raw_temp.add_proj(projs).apply_proj(verbose="error")
-        noise = raw_temp.copy().filter(*f_band, verbose=False).get_data(reject_by_annotation='omit')
-        variances = np.var(noise, 1)
+        noise = raw_temp.compute_psd(fmin=f_band[0], fmax=f_band[1], verbose=False).get_data()
+        variances = np.mean(noise, 1)
         outliers = is_outlier(variances, z_threshold)
         bad_chans += [raw_temp.ch_names[i] for i in range(len(raw_temp.ch_names)) if outliers[i]]
         print('Iter ' + str(i+1) + ': dropped ' + str(np.sum(outliers)) + ' channels')

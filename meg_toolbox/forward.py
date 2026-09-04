@@ -115,7 +115,7 @@ def make_volume_source_space(fs_subject, subjects_dir, grid_spacing=5, n_jobs=1)
         pos=grid_spacing,
         surface=surface,
         subjects_dir=subjects_dir,
-        mindist=2,
+        mindist=5,
         verbose=False,
         n_jobs=n_jobs,
         )

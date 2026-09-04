@@ -297,19 +297,20 @@ def glass_brain_plot(adjacency, atlas_coords, threshold, cbar_label):
     return fig
 
 
-def volume_brain_plot(img, bg_img, symmetric=False, cmap='hot', threshold=0, fade=True):
+def volume_brain_plot(img, bg_img, symmetric=False, cmap='hot', threshold=0):
     
     peak = np.unravel_index(np.argmax(np.abs(img.get_fdata())), img.shape)
     cut_vox = [peak[0], peak[1], peak[2]]
     cut_coords = nib.affines.apply_affine(img.affine, cut_vox)
-    fig = plotting.plot_stat_map(img, bg_img, transparency=img,
+    fig = plotting.plot_stat_map(img, bg_img, transparency=img, 
+                                 transparency_range=[threshold, np.max(np.abs(img.get_fdata()))],
                                  cut_coords=cut_coords, symmetric_cbar=symmetric, cmap=cmap,
                                  threshold=threshold, black_bg=False, draw_cross=False, annotate=False)
     
     return fig
 
 
-def regression_plot(x, y, ax, color='purple', label=None):
+def regression_plot(x, y, ax, color='black', label=None):
     
     """
     Simple regression plot with shaded confidence interval.
@@ -329,8 +330,8 @@ def regression_plot(x, y, ax, color='purple', label=None):
     
     # plot
     ax.scatter(x,y, color=color, alpha=0.5)
-    ax.fill_between(x[sort_i], ci[sort_i, 0], ci[sort_i, 1], color=color, alpha=0.2)
-    ax.plot(x[sort_i],y_pred[sort_i], color=color, label=label, linewidth=2.5)
+    ax.fill_between(x[sort_i], ci[sort_i, 0], ci[sort_i, 1], color='red', alpha=0.2)
+    ax.plot(x[sort_i],y_pred[sort_i], color='red', label=label, linewidth=2.5)
     
     return stat, p, slope
 
