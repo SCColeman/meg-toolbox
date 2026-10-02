@@ -246,7 +246,6 @@ def orthogonalise_source_raw(source_raw):
 
 def kurtosis_beamformer(raw,
                         fwd,
-                        src
                         ):
     
     """
@@ -268,7 +267,7 @@ def kurtosis_beamformer(raw,
         source_data = weights[source,:] @ data
         k_map[source] = kurtosis(source_data)
     kurtosis_stc = mne.VolSourceEstimate(np.expand_dims(k_map, 1), stc.vertices, 0, 1)
-    kurtosis_img = kurtosis_stc.as_volume(src)
+    kurtosis_img = kurtosis_stc.as_volume(fwd['src'])
     
     return kurtosis_stc, kurtosis_img, filters
 

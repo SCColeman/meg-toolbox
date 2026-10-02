@@ -77,7 +77,11 @@ def remove_noisy_channels(
     
     print('Detecting bad channels...')
     raw = raw.copy()
-    noise = raw.compute_psd(fmin=f_band[0], fmax=f_band[1], verbose=False).get_data()
+    noise, _ = mne.time_frequency.psd_array_welch(raw.get_data(reject_by_annotation='omit'),
+                                               raw.info['sfreq'], 
+                                               fmin=f_band[0], fmax=f_band[1],
+                                               n_fft=int(2*raw.info['sfreq']),
+                                               verbose=False)
     variances = np.mean(noise, 1)
     outliers = is_outlier(variances, z_threshold)
     bad_chans = [raw.ch_names[i] for i in range(len(raw.ch_names)) if outliers[i]]
@@ -137,7 +141,7 @@ def remove_noisy_channels_with_hfc(
         raw_temp.drop_channels(bad_chans)
         projs = mne.preprocessing.compute_proj_hfc(raw_temp.info, order=order)
         raw_temp.add_proj(projs).apply_proj(verbose="error")
-        noise = raw_temp.compute_psd(fmin=f_band[0], fmax=f_band[1], verbose=False).get_data()
+        noise = 10*np.log10(raw_temp.compute_psd(fmin=f_band[0], fmax=f_band[1], n_fft=int(2*raw.info['sfreq']), verbose=False).get_data())
         variances = np.mean(noise, 1)
         outliers = is_outlier(variances, z_threshold)
         bad_chans += [raw_temp.ch_names[i] for i in range(len(raw_temp.ch_names)) if outliers[i]]
@@ -152,6 +156,54 @@ def remove_noisy_channels_with_hfc(
     print('Finished!')
     
     return raw
+
+def recursive_hfc_preprocessing(
+        raw,
+        hfc_order=1,
+        channel_fband=(1,100),
+        segment_fband=(1,100),
+        channel_z_thresh=5,
+        segment_z_thresh=5,
+        iterations=3,
+        ):
+    
+    raw = raw.copy()
+    
+    # recursive processing
+    bad_chans = []
+    for i in range(iterations):
+        
+        # drop bad channels and apply HFC
+        raw_temp = raw.copy()
+        raw_temp.drop_channels(bad_chans)
+        projs = mne.preprocessing.compute_proj_hfc(raw_temp.info, order=hfc_order)
+        raw_temp.add_proj(projs).apply_proj(verbose="error")
+        
+        # find bad segments
+        raw_temp = annotate_bad_segments(raw_temp, f_band=segment_fband, z_threshold=segment_z_thresh)
+        
+        # find bad channels
+        noise, _ = mne.time_frequency.psd_array_welch(raw_temp.get_data(reject_by_annotation='omit'),
+                                                   raw_temp.info['sfreq'], 
+                                                   fmin=channel_fband[0], fmax=channel_fband[1],
+                                                   n_fft=int(2*raw.info['sfreq']),
+                                                   verbose=False)
+        variances = np.mean(noise, 1)
+        outliers = is_outlier(variances, channel_z_thresh)
+        bad_chans += [raw_temp.ch_names[i] for i in range(len(raw_temp.ch_names)) if outliers[i]]
+        print('Iter ' + str(i+1) + ': dropped ' + str(np.sum(outliers)) + ' channels')
+        if np.sum(outliers)==0:
+            break
+    
+    # remove bad channels and apply HFC
+    raw.drop_channels(bad_chans)
+    projs = mne.preprocessing.compute_proj_hfc(raw.info, order=1, verbose=False)
+    raw.add_proj(projs).apply_proj(verbose="error")
+    raw = annotate_bad_segments(raw, f_band=segment_fband, z_threshold=segment_z_thresh)
+    print('Finished!')
+    
+    return raw
+
 
 def remove_noisy_channels_with_ssp(
         raw,
@@ -233,7 +285,7 @@ def annotate_bad_segments(
                 orig_time=annotations.orig_time,
             )
 
-    raw.set_annotations(annotations)
+    raw.set_annotations(annotations, verbose=False)
 
     print('Finished!')
 
@@ -294,11 +346,12 @@ def annotate_high_head_movement_ctf(raw, max_mov_mm=3):
     chpi_locs = mne.chpi.extract_chpi_locs_ctf(raw)
     head_pos = mne.chpi.compute_head_pos(raw.info, chpi_locs, verbose=False)
     head_xyz = head_pos[:,1:4]*100 - head_pos[0,1:4]*100  
+    head_disp = np.linalg.norm(head_xyz, axis=1)
     times = head_pos[:,0]
     
     # identify times with high movement
     threshold = max_mov_mm 
-    bad_mask = np.any(np.abs(head_xyz) > threshold, 1) 
+    bad_mask = head_disp > max_mov_mm
     bad_labels, _ = label(bad_mask)
     bad_times = []
     for cluster in np.unique(bad_labels[bad_labels>0]):
@@ -315,7 +368,7 @@ def annotate_high_head_movement_ctf(raw, max_mov_mm=3):
         annot += mne.Annotations(onset, duration, description, orig_time=annot.orig_time)
     raw.set_annotations(annot, verbose=False)
     
-    return raw, head_xyz
+    return raw, head_disp
 
 
 def fit_ica_manual(raw, n_components=20, random_state=42, method="fastica"):

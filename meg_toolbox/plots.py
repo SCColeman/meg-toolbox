@@ -297,6 +297,96 @@ def glass_brain_plot(adjacency, atlas_coords, threshold, cbar_label):
     return fig
 
 
+def glass_brain_nodes(node_values, node_coords, cbar_label):
+    
+    """
+    Make a glass brain plot with coloured nodes in MNI coordinates.
+    """
+    
+    def add_spheres(plotter, points, radius=2, color="gray"):
+        for point in points:
+            sphere = pv.Sphere(radius=radius, center=point)
+            plotter.add_mesh(sphere, color=color)
+    
+    def remove_white_space(imdata, decim=None):
+        nonwhite_pix = (imdata != 255).any(-1)
+        nonwhite_row = nonwhite_pix.any(1)
+        if decim:
+            nonwhite_row[::decim] = True
+        nonwhite_col = nonwhite_pix.any(0)
+        if decim:
+            nonwhite_col[::decim] = True
+        imdata_cropped = imdata[nonwhite_row][:, nonwhite_col]
+        return imdata_cropped
+    
+    # get colors
+    vmin, vmax = -np.max(np.abs(node_values)), np.max(np.abs(node_values))
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    cmap = cm.RdBu_r
+    rgb_values = cmap(norm(node_values))
+    
+    # get fsaverage meshes
+    fsaverage = datasets.fetch_surf_fsaverage()
+    lh, rh = surface.load_surf_mesh(fsaverage.pial_left), surface.load_surf_mesh(fsaverage.pial_right)
+    
+    # lh mesh
+    coords, faces = lh.coordinates, lh.faces
+    faces_vtk = np.column_stack((np.full(faces.shape[0], 3), faces)).ravel()
+    lh_mesh = pv.PolyData(coords, faces_vtk)
+
+    # rh mesh
+    coords, faces = rh.coordinates, rh.faces
+    faces_vtk = np.column_stack((np.full(faces.shape[0], 3), faces)).ravel()
+    rh_mesh = pv.PolyData(coords, faces_vtk)
+    
+    # plot brain
+    plotter = pv.Plotter(off_screen=True)
+    plotter.add_mesh(lh_mesh, color="gray", opacity=0.06)
+    plotter.add_mesh(rh_mesh, color="gray", opacity=0.06)
+    
+    # add coordinates
+    for c in range(len(node_coords)):
+        add_spheres(plotter, [node_coords[c,:]], radius=2.5, color=rgb_values[c,:])
+    
+    # get up view
+    plotter.view_xy() # up view
+    img_up = plotter.screenshot()
+    img_up = remove_white_space(img_up)
+    
+    # get side view
+    plotter.view_yz() # side view
+    img_side = plotter.screenshot()
+    img_side = remove_white_space(img_side)
+    
+    # get back view
+    plotter.view_xz() # back view
+    img_back = plotter.screenshot()
+    img_back = remove_white_space(img_back)
+    
+    # plot 
+    fig = plt.figure(figsize=(9,5.5))
+    ax1 = fig.add_axes([0.15, 0.2, 0.4, 0.7])  # top-left
+    ax2 = fig.add_axes([0.55, 0.55, 0.3, 0.35])  # top-right
+    ax3 = fig.add_axes([0.55, 0.2, 0.3, 0.35])  # bottom-left
+    cax = fig.add_axes([0.32, 0.12, 0.4, 0.03]) # colorbar ax
+    
+    # insert images
+    ax1.imshow(img_up)
+    ax1.axis(False)
+    ax2.imshow(img_side)
+    ax2.axis(False)
+    ax3.imshow(img_back)
+    ax3.axis(False)
+    
+    # add cbar
+    cbar = fig.colorbar(cm.ScalarMappable(norm=norm, cmap=cmap),
+             cax=cax, orientation='horizontal', label=cbar_label)
+    cbar.ax.tick_params(labelsize=14)
+    cbar.set_label(cbar_label, fontsize=16, labelpad=0)
+    
+    return fig
+
+
 def volume_brain_plot(img, bg_img, symmetric=False, cmap='hot', threshold=0):
     
     peak = np.unravel_index(np.argmax(np.abs(img.get_fdata())), img.shape)
