@@ -11,7 +11,7 @@ from glob import glob
 import os.path as op
 import os
 import sys
-from meg_toolbox import preprocess, inverse, forward
+from meg_toolbox import preprocess, inverse, forward, transforms
 import pandas as pd
 
 # paths
@@ -24,6 +24,11 @@ subjects_dir = op.join(root, 'subjects_dir')   # FreeSurfer subjects_dir, e.g. /
 subject = 'sub-01'
 fname = op.join(data_path, subject, subject + '.ds')
 raw = mne.io.read_raw_ctf(fname, preload=True)
+
+#%% compute nonlinear transforms from subject to MNI space
+
+# the outputs will be saved into subjects_dir 
+transform.compute_subject_mni_transforms(subject, subjects_dir, res=2) 
 
 #%% preprocessing
 
@@ -55,17 +60,36 @@ fwd = forward.make_forward_model(raw, trans, bem, src)
 
 #%% beamform induced power
 
-stc, stc_img = inverse.contrast_beamformer(raw,
-                                           src, 
-                                           fwd,
-                                           f_lims=(13,30),
-                                           active_event_id='Button',   # the name/ID of the trigger - not it's value
-                                           baseline_event_id='Button',
-                                           epoch_window=(-0.5, 1),
-                                           active_window=(0.3, 0.8),   # beta rebound
-                                           baseline_window=(-0.25, 0.25)   # beta desync
-                                           )
+events, ids = mne.events_from_annotations(raw)
+stc, stc_img, filters = inverse.contrast_beamformer(raw,
+                                        events,
+                                        ids,
+                                        fwd,
+                                        f_lims=(13,30),
+                                        active_event_id='Button',   # the name/ID of the trigger - not it's value
+                                        baseline_event_id='Button',
+                                        epoch_window=(-0.5, 1),
+                                        active_window=(0.3, 0.8),   # beta rebound
+                                        baseline_window=(-0.25, 0.25),   # beta desync
+                                        )
 stc.plot(src, subject, subjects_dir, clim={'type': 'percent', 'pos_lims': [95, 97, 100]})
+
+# extract peak virtual electrodes from a parcellation
+parcellation_fname = '/d/gmi/1/sebastiancoleman/atlases/giles38_3D.nii.gz'
+parcel_names = list(pd.read_csv('/d/gmi/1/sebastiancoleman/atlases/giles38_names.csv').to_numpy()[:,0])
+peak_VEs = inverse.extract_parcel_peak_VEs(raw, 
+                                           filters, 
+                                           fwd,
+                                           subject,
+                                           subjects_dir,
+                                           parcellation_fname,
+                                           parcel_names,
+                                           stat_img=stc_img,   # determines the peak voxel
+                                           mode='abs',    # should we care about the sign of peak
+                                           )
+
+# convert beamformer image to MNI space for group analyses
+stc_mni = transform.transform_img_to_mni(stc_img, subject, subjects_dir)
 
 #%% beamform to parcellation
 # The resulting "source_raw" object is ready to perform atlas-based power
@@ -78,7 +102,7 @@ parcel_names = list(pd.read_csv('/d/gmi/1/sebastiancoleman/atlases/giles38_names
 filters = inverse.calculate_beamformer_weights(raw, fwd, reg=0.05)
 source_raw, sub_atlas = inverse.parcel_beamformer(raw,
                                         filters,
-                                        src,
+                                        fwd,
                                         subject,
                                         subjects_dir,
                                         parcellation_fname,
