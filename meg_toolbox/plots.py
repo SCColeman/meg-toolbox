@@ -324,6 +324,8 @@ def glass_brain_nodes(node_values, node_coords, cbar_label):
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
     cmap = cm.RdBu_r
     rgb_values = cmap(norm(node_values))
+    alphas = np.abs(node_values) / np.max(np.abs(node_values))
+    #rgb_values[:,3] = alphas
     
     # get fsaverage meshes
     fsaverage = datasets.fetch_surf_fsaverage()
@@ -346,7 +348,7 @@ def glass_brain_nodes(node_values, node_coords, cbar_label):
     
     # add coordinates
     for c in range(len(node_coords)):
-        add_spheres(plotter, [node_coords[c,:]], radius=2.5, color=rgb_values[c,:])
+        add_spheres(plotter, [node_coords[c,:]], radius=alphas[c]*4, color=rgb_values[c,:])
     
     # get up view
     plotter.view_xy() # up view
@@ -431,7 +433,7 @@ def line_with_error(ax, data, times, color, legend):
     """
     plot line with error.
     """
-    values = np.mean(data, 0)
-    err = np.std(data, 0) / np.sqrt(len(data))
+    values = np.nanmean(data, 0)
+    err = np.nanstd(data, 0) / np.sqrt(len(data))
     ax.plot(times, values, color=color, label=legend)
     ax.fill_between(times, values-err, values+err, alpha=0.2, color=color)

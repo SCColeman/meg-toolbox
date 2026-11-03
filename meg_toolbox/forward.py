@@ -56,6 +56,7 @@ def compute_coreg_trans(raw, fs_subject, subjects_dir):
         info=raw.info,
         subject=fs_subject,
         subjects_dir=subjects_dir,
+        on_defects='ignore',
     )
     coreg.fit_fiducials()
     return coreg.trans

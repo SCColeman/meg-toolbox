@@ -10,6 +10,7 @@ import numpy as np
 import mne
 from datetime import datetime
 from scipy.ndimage import label
+from scipy.stats import kurtosis
 
 def is_outlier(data, threshold=3.5, only_positive=True):
     """
@@ -69,7 +70,8 @@ def remove_noisy_channels(
     raw, 
     f_band=(20, 100),
     z_threshold=5.0,
-    drop=True
+    drop=True,
+    only_upper=True,
     ):
     """
     Detect and mark bad channels using signal variance.
@@ -83,13 +85,35 @@ def remove_noisy_channels(
                                                n_fft=int(2*raw.info['sfreq']),
                                                verbose=False)
     variances = np.mean(noise, 1)
-    outliers = is_outlier(variances, z_threshold)
+    outliers = is_outlier(variances, z_threshold, only_positive=only_upper)
     bad_chans = [raw.ch_names[i] for i in range(len(raw.ch_names)) if outliers[i]]
     raw.info['bads'] += bad_chans
     raw.info['bads'] = [str(inst) for inst in raw.info['bads']]
     
     if drop==True:
         raw.drop_channels(raw.info['bads'])
+    
+    print('Finished!')
+    print(f'Removed {len(bad_chans)} channels')
+    
+    return raw
+
+def remove_kurtotic_channels(raw, f_band=(1,45), max_k=50):
+    
+    """
+    Remove noisy channels based on kurtosis.
+    """
+    
+    print('Detecting dead channels...')
+    raw = raw.copy()
+    raw.filter(f_band[0], f_band[1])
+    k_data = kurtosis(raw.get_data(), axis=-1)
+    outliers = k_data > max_k
+    bad_chans = [raw.ch_names[i] for i in range(len(raw.ch_names)) if outliers[i]]
+    raw.info['bads'] += bad_chans
+    raw.info['bads'] = [str(inst) for inst in raw.info['bads']]
+
+    raw.drop_channels(raw.info['bads'])
     
     print('Finished!')
     print(f'Removed {len(bad_chans)} channels')
@@ -272,7 +296,7 @@ def annotate_bad_segments(
     outliers = is_outlier(variances, z_threshold)
 
     annotations = raw.annotations
-    times = raw.times
+    times = raw.times + raw.first_time
 
     for idx, start in enumerate(range(0, noise.shape[1], step_len)):
         if outliers[idx]:

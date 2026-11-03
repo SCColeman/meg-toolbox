@@ -282,6 +282,7 @@ def contrast_beamformer(raw,
                         epoch_window=(-0.5, 0.5),
                         active_window=(0, 0.5),
                         baseline_window=(-0.5, 0),
+                        equalise_trial_counts=True,
                         ):
     
     """
@@ -315,10 +316,27 @@ def contrast_beamformer(raw,
                                        rank=None,
                                        )
     
+    # equalise epoch counts
+    if equalise_trial_counts:
+        n_active = len(epochs[[str(ids[ev]) for ev in active_event_id]])
+        n_baseline = len(epochs[[str(ids[ev]) for ev in baseline_event_id]])
+        if n_active>n_baseline:
+            active_picks = np.random.permutation(np.arange(n_active))[:n_baseline]
+            baseline_picks = np.arange(n_baseline)
+        elif n_baseline>n_active:
+            active_picks = np.arange(n_active)
+            baseline_picks = np.random.permutation(np.arange(n_baseline))[:n_active]
+        else:
+            active_picks = np.arange(n_active)
+            baseline_picks = np.arange(n_baseline)
+    else:
+        active_picks = np.arange(n_active)
+        baseline_picks = np.arange(n_baseline)
+    
     # make pseudo-T
-    cov_act = mne.compute_covariance(epochs[[str(ids[ev]) for ev in active_event_id]], 
+    cov_act = mne.compute_covariance(epochs[[str(ids[ev]) for ev in active_event_id]][active_picks], 
                                      tmin=active_window[0], tmax=active_window[1])
-    cov_base = mne.compute_covariance(epochs[[str(ids[ev]) for ev in baseline_event_id]], 
+    cov_base = mne.compute_covariance(epochs[[str(ids[ev]) for ev in baseline_event_id]][baseline_picks], 
                                      tmin=baseline_window[0], tmax=baseline_window[1])
     stc_act = mne.beamformer.apply_lcmv_cov(cov_act, filters)
     stc_base = mne.beamformer.apply_lcmv_cov(cov_base, filters)

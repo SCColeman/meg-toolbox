@@ -92,25 +92,19 @@ def calculate_tfr(
 
 def zscore_excluding_bads(raw):
     
+    def apply_zscore(arr):
+        return ((arr.T - mean) / std).T
+    
     raw = raw.copy()
     
     # extract data
     data = raw.get_data(picks='all')
+    first_time = raw.first_time
     clean_data = raw.get_data(picks='all', reject_by_annotation='omit')
     
     # calculate clean z-score
     mean = np.mean(clean_data, axis=-1)
     std = np.std(clean_data, axis=-1)
     
-    # apply z-score to full data
-    clean_z = ((data.T - mean) / std).T
+    return raw.apply_function(apply_zscore, channel_wise=False, picks='all')
     
-    # make into raw
-    raw_z = mne.io.RawArray(clean_z, raw.info)
-    raw_z.set_meas_date(raw.info['meas_date'])
-    raw_z.set_annotations(raw.annotations)
-    
-    return raw_z
-
-
-
